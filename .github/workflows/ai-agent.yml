@@ -38,7 +38,7 @@ env:
   # public, hence plain env. Without it commits are not linked back to the app.
   AGENT_LOGIN: ai4c-agent[bot]
   AGENT_USER_ID: 242316268
-  MODEL: claude-opus-5-5
+  MODEL: claude-sonnet-4-6
   TOOLS_DIR: ${{ github.workspace }}/tools
   ARTIFACT_RETENTION_DAYS: 90
   TIMEOUT_MINUTES: 30
@@ -78,12 +78,16 @@ jobs:
         uses: actions/checkout@v4
       # Minted per-job: installation tokens are short-lived (1h) and must not be
       # passed between jobs, since GitHub's log masking does not follow job outputs.
-      - name: Mint app token
+      # Lab difference: upstream mints a GitHub App token (ai4c-agent); the fork
+      # cannot hold that App's private key, so we inject a lab PAT instead. This
+      # does not touch the agent's logic or the attack surface under test.
+      - name: Mint lab token (PAT)
         id: app-token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.AI4C_AGENT_APP_ID }}
-          private-key: ${{ secrets.AI4C_AGENT_PRIVATE_KEY }}
+        env:
+          LAB_PAT: ${{ secrets.AI4C_AGENT_PAT }}
+        run: |
+          if [ -z "$LAB_PAT" ]; then echo "AI4C_AGENT_PAT secret is not set" >&2; exit 1; fi
+          echo "token=$LAB_PAT" >> "$GITHUB_OUTPUT"
       - name: Check for qualifying mention
         id: check
         uses: actions/github-script@v6
@@ -282,12 +286,16 @@ jobs:
       # Must precede checkout: the token is persisted as the git credential and
       # is what later `git push` calls authenticate with. Valid for 1h, which
       # bounds how far timeout-minutes above can safely be raised.
-      - name: Mint app token
+      # Lab difference: upstream mints a GitHub App token (ai4c-agent); the fork
+      # cannot hold that App's private key, so we inject a lab PAT instead. This
+      # does not touch the agent's logic or the attack surface under test.
+      - name: Mint lab token (PAT)
         id: app-token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.AI4C_AGENT_APP_ID }}
-          private-key: ${{ secrets.AI4C_AGENT_PRIVATE_KEY }}
+        env:
+          LAB_PAT: ${{ secrets.AI4C_AGENT_PAT }}
+        run: |
+          if [ -z "$LAB_PAT" ]; then echo "AI4C_AGENT_PAT secret is not set" >&2; exit 1; fi
+          echo "token=$LAB_PAT" >> "$GITHUB_OUTPUT"
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -337,6 +345,8 @@ jobs:
 
       - name: Run Claude Code
         uses: anthropics/claude-code-base-action@main
+        env:
+          ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
         with:
           prompt: |
             You are @${{ env.AGENT_MENTION }}, responding to a request from @${{ fromJSON(needs.check-mention.outputs.result).user }} on GitHub ${{ fromJSON(needs.check-mention.outputs.result).itemType }} #${{ fromJSON(needs.check-mention.outputs.result).itemNumber }}.
